@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const cluster = require('node:cluster');
 const { availableParallelism } = require('node:os');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const resolveWorkerCount = () => {
@@ -21,7 +22,17 @@ const resolveWorkerCount = () => {
 };
 
 const workerCount = resolveWorkerCount();
-const serverEntrypoint = path.resolve(__dirname, '..', '.next', 'standalone', 'server.js');
+const candidateEntrypoints = [
+  path.resolve(__dirname, '..', '.next', 'standalone', 'server.js'),
+  path.resolve(__dirname, '..', 'server.js'),
+];
+const serverEntrypoint = candidateEntrypoints.find((candidate) => fs.existsSync(candidate));
+
+if (!serverEntrypoint) {
+  console.error('Unable to find the Next.js standalone server entrypoint.');
+  console.error(`Checked: ${candidateEntrypoints.join(', ')}`);
+  process.exit(1);
+}
 
 if (workerCount === 1) {
   require(serverEntrypoint);
