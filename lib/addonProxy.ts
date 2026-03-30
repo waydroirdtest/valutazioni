@@ -11,18 +11,23 @@ const ERDB_OPTIONAL_PARAMS = [
   'posterRatingsMaxPerSide',
   'backdropRatingsLayout',
   'thumbnailRatingsLayout',
+  'posterVerticalBadgeContent',
+  'backdropVerticalBadgeContent',
+  'thumbnailVerticalBadgeContent',
   'thumbnailSize',
+  'aiometadataProvider',
 ];
 const ERDB_TYPE_OPTIONAL_PARAMS = {
   poster: ['posterStreamBadges', 'posterQualityBadgesStyle', 'posterRatings'],
   backdrop: ['backdropStreamBadges', 'backdropQualityBadgesStyle', 'backdropRatings'],
   logo: ['logoRatings'],
-  thumbnail: ['backdropStreamBadges', 'backdropQualityBadgesStyle', 'backdropRatings'],
+  thumbnail: ['backdropStreamBadges', 'backdropQualityBadgesStyle', 'thumbnailRatings'],
 } as const;
 const ERDB_OPTIONAL_PARAM_KEYS = [
   ...ERDB_OPTIONAL_PARAMS,
   ...ERDB_TYPE_OPTIONAL_PARAMS.poster,
   ...ERDB_TYPE_OPTIONAL_PARAMS.backdrop,
+  ...ERDB_TYPE_OPTIONAL_PARAMS.thumbnail,
   ...ERDB_TYPE_OPTIONAL_PARAMS.logo,
 ];
 
@@ -75,6 +80,7 @@ export type ProxyConfig = {
   ratings?: string;
   posterRatings?: string;
   backdropRatings?: string;
+  thumbnailRatings?: string;
   logoRatings?: string;
   lang?: string;
   streamBadges?: string;
@@ -96,7 +102,11 @@ export type ProxyConfig = {
   posterRatingsMaxPerSide?: string;
   backdropRatingsLayout?: string;
   thumbnailRatingsLayout?: string;
+  posterVerticalBadgeContent?: string;
+  backdropVerticalBadgeContent?: string;
+  thumbnailVerticalBadgeContent?: string;
   thumbnailSize?: string;
+  aiometadataProvider?: string;
   erdbBase?: string;
   posterEnabled?: boolean;
   backdropEnabled?: boolean;
@@ -108,6 +118,7 @@ const PROXY_OPTIONAL_STRING_KEYS = [
   'ratings',
   'posterRatings',
   'backdropRatings',
+  'thumbnailRatings',
   'logoRatings',
   'simklClientId',
   'lang',
@@ -130,7 +141,11 @@ const PROXY_OPTIONAL_STRING_KEYS = [
   'posterRatingsMaxPerSide',
   'backdropRatingsLayout',
   'thumbnailRatingsLayout',
+  'posterVerticalBadgeContent',
+  'backdropVerticalBadgeContent',
+  'thumbnailVerticalBadgeContent',
   'thumbnailSize',
+  'aiometadataProvider',
   'erdbBase',
  ] as const satisfies readonly (keyof ProxyConfig)[];
 type ProxyOptionalStringKey = (typeof PROXY_OPTIONAL_STRING_KEYS)[number];
@@ -144,7 +159,7 @@ const PROXY_OPTIONAL_BOOLEAN_KEYS = [
 ] as const satisfies readonly (keyof ProxyConfig)[];
 type ProxyOptionalBooleanKey = (typeof PROXY_OPTIONAL_BOOLEAN_KEYS)[number];
 
-const SUPPORTED_PREFIXES = new Set(['tmdb', 'kitsu', 'anilist', 'anidb', 'myanimelist', 'mal']);
+const SUPPORTED_PREFIXES = new Set(['tmdb', 'tvdb', 'realimdb', 'kitsu', 'anilist', 'anidb', 'myanimelist', 'mal']);
 const IMDB_RE = /^tt\d+$/i;
 
 export const buildProxyId = (manifestUrl: string, configSeed?: string) => {
@@ -215,6 +230,14 @@ export const normalizeErdbId = (
       }
       return `tmdb:${parts[1]}`;
     }
+  }
+
+  if (prefix === 'tvdb' && parts.length >= 2 && parts[1]) {
+    return `tvdb:${parts[1]}`;
+  }
+
+  if (prefix === 'realimdb' && parts.length >= 2 && parts[1]) {
+    return `realimdb:${parts[1]}`;
   }
 
   if (SUPPORTED_PREFIXES.has(prefix) && parts.length >= 2 && parts[1]) {

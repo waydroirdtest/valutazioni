@@ -21,6 +21,8 @@ const corsHeaders = {
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const tmdbFetchCache = new Map<string, Promise<any>>();
+const textFetchCache = new Map<string, Promise<string | null>>();
+type TmdbRef = { id: number; type: 'movie' | 'tv'; season?: number | null; episode?: number | null; isAnime?: boolean };
 
 const fetchTmdbJson = async (url: string) => {
   const cached = tmdbFetchCache.get(url);
@@ -37,6 +39,53 @@ const fetchTmdbJson = async (url: string) => {
     .catch(() => null);
   tmdbFetchCache.set(url, promise);
   return promise;
+};
+
+const fetchText = async (url: string) => {
+  const cached = textFetchCache.get(url);
+  if (cached) return cached;
+  const promise = fetch(url, { cache: 'no-store', redirect: 'follow' })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      try {
+        return await response.text();
+      } catch {
+        return null;
+      }
+    })
+    .catch(() => null);
+  textFetchCache.set(url, promise);
+  return promise;
+};
+
+const extractTvdbEpisodeIdFromAiredOrder = async (
+  seriesId: string,
+  season: string,
+  episode: string,
+) => {
+  const seasonNumber = parseInt(season, 10);
+  const episodeNumber = parseInt(episode, 10);
+  if (!Number.isFinite(seasonNumber) || !Number.isFinite(episodeNumber)) return null;
+
+  const seriesUrl = `https://thetvdb.com/dereferrer/series/${encodeURIComponent(seriesId)}`;
+  const seriesResponse = await fetch(seriesUrl, { cache: 'no-store', redirect: 'follow' }).catch(() => null);
+  const seriesPageUrl = seriesResponse?.url;
+  if (!seriesPageUrl) return null;
+
+  const airedOrderUrl = `${seriesPageUrl.replace(/\/+$/, '')}/allseasons/official`;
+  const html = await fetchText(airedOrderUrl);
+  if (!html) return null;
+
+  const escapedSeriesSlug = seriesPageUrl
+    .replace(/^https?:\/\/thetvdb\.com/i, '')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const episodeCode = `S${String(seasonNumber).padStart(2, '0')}E${String(episodeNumber).padStart(2, '0')}`;
+  const matcher = new RegExp(
+    `${episodeCode}[\\s\\S]{0,1200}?href="${escapedSeriesSlug}/episodes/(\\d+)"`,
+    'i'
+  );
+  const match = html.match(matcher);
+  return match?.[1] || null;
 };
 
 const normalizeStremioType = (value: unknown): 'movie' | 'tv' | null => {
@@ -98,7 +147,7 @@ const resolveTmdbFromErdbId = async (
   metaType: unknown,
   tmdbKey: string,
   lang: string | null,
-): Promise<{ id: number; type: 'movie' | 'tv'; season?: number | null; isAnime?: boolean } | null> => {
+): Promise<TmdbRef | null> => {
   if (!erdbId) return null;
   const stremioType = normalizeStremioType(metaType);
 
@@ -147,6 +196,80 @@ const resolveTmdbFromErdbId = async (
     }
   }
 
+  if (erdbId.startsWith('tvdb:')) {
+    const parts = erdbId.split(':');
+    const seriesId = parts[1];
+    const season = parts[2];
+    const episode = parts[3];
+    if (!seriesId) return null;
+
+    if (season && episode) {
+      const tvdbEpisodeId = await extractTvdbEpisodeIdFromAiredOrder(seriesId, season, episode);
+      if (!tvdbEpisodeId) return null;
+
+      const findUrl = new URL(`${TMDB_BASE_URL}/find/${encodeURIComponent(tvdbEpisodeId)}`);
+      findUrl.searchParams.set('api_key', tmdbKey);
+      findUrl.searchParams.set('external_source', 'tvdb_id');
+      if (lang) {
+        findUrl.searchParams.set('language', lang);
+      }
+
+      const data = await fetchTmdbJson(findUrl.toString());
+      const episodeResult = Array.isArray(data?.tv_episode_results) ? data.tv_episode_results[0] : null;
+      const showId = Number(episodeResult?.show_id);
+      const resolvedSeason = Number(episodeResult?.season_number);
+      if (Number.isFinite(showId)) {
+        return {
+          id: showId,
+          type: 'tv',
+          season: Number.isFinite(resolvedSeason) ? resolvedSeason : null,
+        };
+      }
+      return null;
+    }
+
+    const findUrl = new URL(`${TMDB_BASE_URL}/find/${encodeURIComponent(seriesId)}`);
+    findUrl.searchParams.set('api_key', tmdbKey);
+    findUrl.searchParams.set('external_source', 'tvdb_id');
+    if (lang) {
+      findUrl.searchParams.set('language', lang);
+    }
+    const data = await fetchTmdbJson(findUrl.toString());
+    const tvResult = Array.isArray(data?.tv_results) ? data.tv_results[0] : null;
+    const id = Number(tvResult?.id);
+    if (Number.isFinite(id)) {
+      return { id, type: 'tv' };
+    }
+  }
+
+  if (erdbId.startsWith('realimdb:')) {
+    const parts = erdbId.split(':');
+    const imdbId = parts[1];
+    if (!imdbId) return null;
+
+    const findUrl = new URL(`${TMDB_BASE_URL}/find/${encodeURIComponent(imdbId)}`);
+    findUrl.searchParams.set('api_key', tmdbKey);
+    findUrl.searchParams.set('external_source', 'imdb_id');
+    if (lang) {
+      findUrl.searchParams.set('language', lang);
+    }
+
+    const data = await fetchTmdbJson(findUrl.toString());
+    const episodeResult = Array.isArray(data?.tv_episode_results) ? data.tv_episode_results[0] : null;
+    if (episodeResult?.show_id) {
+      return {
+        id: Number(episodeResult.show_id),
+        type: 'tv',
+        season: Number.isFinite(Number(episodeResult.season_number)) ? Number(episodeResult.season_number) : null,
+      };
+    }
+
+    const tvResult = Array.isArray(data?.tv_results) ? data.tv_results[0] : null;
+    if (tvResult?.id) {
+      return { id: Number(tvResult.id), type: 'tv' };
+    }
+  }
+
   // Handle anime site IDs
   const animePrefixes = ['kitsu', 'anilist', 'mal', 'myanimelist', 'anidb'];
   for (const prefix of animePrefixes) {
@@ -160,6 +283,35 @@ const resolveTmdbFromErdbId = async (
   }
 
   return null;
+};
+
+const resolveTmdbEpisodeFromVideo = async (
+  baseErdbId: string,
+  metaType: unknown,
+  tmdbKey: string,
+  lang: string | null,
+  seasonValue: number,
+  episodeValue: number,
+) => {
+  if (!Number.isFinite(seasonValue) || !Number.isFinite(episodeValue)) return null;
+
+  if (baseErdbId.startsWith('realimdb:') || baseErdbId.startsWith('tvdb:')) {
+    return resolveTmdbFromErdbId(
+      `${baseErdbId}:${seasonValue}:${episodeValue}`,
+      metaType,
+      tmdbKey,
+      lang,
+    );
+  }
+
+  const baseRef = await resolveTmdbFromErdbId(baseErdbId, metaType, tmdbKey, lang);
+  if (!baseRef || baseRef.type !== 'tv') return null;
+
+  return {
+    ...baseRef,
+    season: seasonValue,
+    episode: episodeValue,
+  };
 };
 
 const translateTextFields = (
@@ -227,6 +379,7 @@ const translateMetaPayload = async (
   meta: Record<string, unknown>,
   requestUrl: URL,
   config: ProxyConfig,
+  requestedType?: string | null,
 ) => {
   if (!config.translateMeta) return meta;
   const lang = config.lang || requestUrl.searchParams.get('lang');
@@ -234,7 +387,7 @@ const translateMetaPayload = async (
 
   const rawId = typeof meta.id === 'string' ? meta.id : null;
   const rawType = typeof meta.type === 'string' ? meta.type : null;
-  const erdbId = normalizeErdbId(rawId, rawType);
+  const erdbId = normalizeProxyErdbId(rawId, rawType, config, meta, requestedType);
   if (!erdbId) return meta;
 
   const tmdbRef = await resolveTmdbFromErdbId(erdbId, rawType, config.tmdbKey, lang);
@@ -285,8 +438,29 @@ const translateMetaPayload = async (
         return video;
       }
 
+      const episodeTmdbRef = await resolveTmdbEpisodeFromVideo(
+        erdbId,
+        rawType,
+        config.tmdbKey,
+        lang,
+        seasonValue,
+        episodeValue,
+      );
+      if (!episodeTmdbRef || episodeTmdbRef.type !== 'tv') {
+        return video;
+      }
+
+      const resolvedSeason =
+        typeof episodeTmdbRef.season === 'number' && episodeTmdbRef.season > 0
+          ? episodeTmdbRef.season
+          : seasonValue;
+      const resolvedEpisode =
+        typeof episodeTmdbRef.episode === 'number' && episodeTmdbRef.episode > 0
+          ? episodeTmdbRef.episode
+          : episodeValue;
+
       const episodeUrl = new URL(
-        `${TMDB_BASE_URL}/tv/${tmdbRef.id}/season/${seasonValue}/episode/${episodeValue}`,
+        `${TMDB_BASE_URL}/tv/${episodeTmdbRef.id}/season/${resolvedSeason}/episode/${resolvedEpisode}`,
       );
       episodeUrl.searchParams.set('api_key', config.tmdbKey);
       episodeUrl.searchParams.set('language', lang);
@@ -325,6 +499,70 @@ const getPublicRequestUrl = (request: NextRequest) => {
 const buildError = (message: string, status = 400) =>
   NextResponse.json({ error: message }, { status, headers: corsHeaders });
 
+const isCinemetaManifestUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return /(^|[-.])cinemeta\.strem\.io$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const isAiometadataManifestUrl = (value: string) => value.toLowerCase().includes('aiometadata');
+
+const isAnimeMeta = (meta: Record<string, unknown>, rawType: string | null, rawId: string | null) => {
+  const normalizedType = String(rawType || '').trim().toLowerCase();
+  if (normalizedType.startsWith('anime')) return true;
+
+  const normalizedId = String(rawId || '').trim().toLowerCase();
+  if (
+    normalizedId.startsWith('kitsu:') ||
+    normalizedId.startsWith('mal:') ||
+    normalizedId.startsWith('anilist:') ||
+    normalizedId.startsWith('anidb:')
+  ) {
+    return true;
+  }
+
+  const genres = Array.isArray(meta.genres) ? meta.genres : [];
+  return genres.some((genre) => typeof genre === 'string' && genre.trim().toLowerCase() === 'anime');
+};
+
+const applyConfiguredEpisodeProvider = (
+  normalized: string,
+  provider: string | undefined
+) => {
+  if (!provider) return normalized;
+  if (provider === 'custom') return normalized;
+  if (provider === 'realimdb' && /^tt\d+$/i.test(normalized)) return `realimdb:${normalized}`;
+  return normalized;
+};
+
+const normalizeProxyErdbId = (
+  rawId: string | null,
+  rawType: string | null,
+  config: ProxyConfig,
+  meta?: Record<string, unknown>,
+  requestedType?: string | null
+) => {
+  const normalized = normalizeErdbId(rawId, rawType);
+  if (!normalized) return null;
+  const normalizedType = normalizeStremioType(rawType);
+  if (isAiometadataManifestUrl(config.url)) {
+    if (normalizedType === 'movie') {
+      return normalized;
+    }
+    const provider = config.aiometadataProvider;
+    return applyConfiguredEpisodeProvider(normalized, provider);
+  }
+  if (!isCinemetaManifestUrl(config.url)) return normalized;
+
+  if (normalizedType === 'tv' && /^tt\d+$/i.test(normalized)) {
+    return `realimdb:${normalized}`;
+  }
+  return normalized;
+};
+
 const isTypeEnabled = (config: ProxyConfig, type: 'poster' | 'backdrop' | 'logo' | 'thumbnail') => {
   if (type === 'poster') return config.posterEnabled !== false;
   if (type === 'backdrop') return config.backdropEnabled !== false;
@@ -336,13 +574,14 @@ const rewriteMetaVideoThumbnails = (
   meta: Record<string, unknown>,
   requestUrl: URL,
   config: ProxyConfig,
+  requestedType?: string | null,
 ) => {
   if (!isTypeEnabled(config, 'thumbnail')) return meta;
   if (!Array.isArray(meta.videos) || meta.videos.length === 0) return meta;
 
   const rawId = typeof meta.id === 'string' ? meta.id : null;
   const rawType = typeof meta.type === 'string' ? meta.type : null;
-  const erdbId = normalizeErdbId(rawId, rawType);
+  const erdbId = normalizeProxyErdbId(rawId, rawType, config, meta, requestedType);
   if (!erdbId) return meta;
 
   const nextVideos = meta.videos.map((video) => {
@@ -389,11 +628,12 @@ const rewriteMetaImages = (
   meta: Record<string, unknown>,
   requestUrl: URL,
   config: ProxyConfig,
+  requestedType?: string | null,
 ) => {
   if (!meta || typeof meta !== 'object') return meta;
   const rawId = typeof meta.id === 'string' ? meta.id : null;
   const rawType = typeof meta.type === 'string' ? meta.type : null;
-  const erdbId = normalizeErdbId(rawId, rawType);
+  const erdbId = normalizeProxyErdbId(rawId, rawType, config, meta, requestedType);
   if (!erdbId) return meta;
 
   const nextMeta: Record<string, unknown> = { ...meta };
@@ -434,7 +674,7 @@ const rewriteMetaImages = (
     });
   }
 
-  return rewriteMetaVideoThumbnails(nextMeta, requestUrl, config);
+  return rewriteMetaVideoThumbnails(nextMeta, requestUrl, config, requestedType);
 };
 
 export async function GET(
@@ -518,6 +758,10 @@ export async function GET(
   }
 
   const resource = resourceSegments[0] || '';
+  const requestedType =
+    resource === 'catalog' || resource === 'meta'
+      ? (resourceSegments[1] || null)
+      : null;
   const forwardUrl = new URL(originBase);
   // Preserve Stremio "extra" path segments like `search=...` and `skip=...`.
   // Encoding each segment would turn `=` into `%3D`, breaking upstream parsing.
@@ -581,18 +825,23 @@ export async function GET(
 
   if (resource === 'catalog' && Array.isArray(payload.metas)) {
     const metasWithImages = payload.metas.map((meta) =>
-      rewriteMetaImages(meta as Record<string, unknown>, publicRequestUrl, config),
+      rewriteMetaImages(meta as Record<string, unknown>, publicRequestUrl, config, requestedType),
     );
     payload.metas = await mapWithConcurrency(
       metasWithImages as Array<Record<string, unknown>>,
       6,
-      async (meta) => translateMetaPayload(meta, publicRequestUrl, config),
+      async (meta) => translateMetaPayload(meta, publicRequestUrl, config, requestedType),
     );
   }
 
   if (resource === 'meta' && payload.meta && typeof payload.meta === 'object') {
-    const metaWithImages = rewriteMetaImages(payload.meta as Record<string, unknown>, publicRequestUrl, config);
-    payload.meta = await translateMetaPayload(metaWithImages, publicRequestUrl, config);
+    const metaWithImages = rewriteMetaImages(
+      payload.meta as Record<string, unknown>,
+      publicRequestUrl,
+      config,
+      requestedType
+    );
+    payload.meta = await translateMetaPayload(metaWithImages, publicRequestUrl, config, requestedType);
   }
 
   return NextResponse.json(payload, { status: 200, headers: corsHeaders });

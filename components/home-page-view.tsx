@@ -57,6 +57,9 @@ type StreamBadgesSetting = 'auto' | 'on' | 'off';
 type QualityBadgesSide = 'left' | 'right';
 type PosterQualityBadgesPosition = 'auto' | QualityBadgesSide;
 type AiometadataPatternType = 'poster' | 'background' | 'logo' | 'episodeThumbnail';
+type AiometadataEpisodeProvider = 'tvdb' | 'realimdb';
+type ProxyEpisodeProvider = 'custom' | 'realimdb';
+type VerticalBadgeContent = 'standard' | 'stacked';
 
 type HomePageViewState = {
   previewType: PreviewType;
@@ -67,6 +70,7 @@ type HomePageViewState = {
   mdblistKey: string;
   simklClientId: string;
   proxyManifestUrl: string;
+  proxyAiometadataProvider: ProxyEpisodeProvider;
   proxyEnabledTypes: ProxyEnabledTypes;
   proxyTranslateMeta: boolean;
   exportStatus: 'idle' | 'with' | 'without';
@@ -76,6 +80,9 @@ type HomePageViewState = {
   posterRatingsMaxPerSide: number | null;
   backdropRatingsLayout: BackdropRatingLayout;
   thumbnailRatingsLayout: ThumbnailRatingLayout;
+  posterVerticalBadgeContent: VerticalBadgeContent;
+  backdropVerticalBadgeContent: VerticalBadgeContent;
+  thumbnailVerticalBadgeContent: VerticalBadgeContent;
   thumbnailSize: ThumbnailSize;
   qualityBadgesSide: QualityBadgesSide;
   posterQualityBadgesPosition: PosterQualityBadgesPosition;
@@ -83,12 +90,16 @@ type HomePageViewState = {
   proxyCopied: boolean;
   copied: boolean;
   aiometadataCopiedType: AiometadataPatternType | null;
+  aiometadataEpisodeProvider: AiometadataEpisodeProvider;
 };
 
 type HomePageViewDerived = {
   baseUrl: string;
   previewUrl: string;
   proxyUrl: string;
+  currentVersion: string;
+  githubPackageVersion: string | null;
+  repoUrl: string | null;
   previewNotice: string | null;
   canGenerateConfig: boolean;
   canGenerateProxy: boolean;
@@ -128,7 +139,12 @@ type HomePageViewActions = {
   setPosterRatingsMaxPerSide: Dispatch<SetStateAction<number | null>>;
   setBackdropRatingsLayout: Dispatch<SetStateAction<BackdropRatingLayout>>;
   setThumbnailRatingsLayout: Dispatch<SetStateAction<ThumbnailRatingLayout>>;
+  setPosterVerticalBadgeContent: Dispatch<SetStateAction<VerticalBadgeContent>>;
+  setBackdropVerticalBadgeContent: Dispatch<SetStateAction<VerticalBadgeContent>>;
+  setThumbnailVerticalBadgeContent: Dispatch<SetStateAction<VerticalBadgeContent>>;
   setThumbnailSize: Dispatch<SetStateAction<ThumbnailSize>>;
+  setAiometadataEpisodeProvider: Dispatch<SetStateAction<AiometadataEpisodeProvider>>;
+  setProxyAiometadataProvider: Dispatch<SetStateAction<ProxyEpisodeProvider>>;
   setPosterQualityBadgesPosition: Dispatch<SetStateAction<PosterQualityBadgesPosition>>;
   setQualityBadgesSide: Dispatch<SetStateAction<QualityBadgesSide>>;
   setRatingStyleForType: (value: RatingStyle) => void;
@@ -171,6 +187,18 @@ const POSTER_QUALITY_BADGE_POSITION_OPTIONS: Array<{
   { id: 'left', label: 'Left' },
   { id: 'right', label: 'Right' },
 ];
+const VERTICAL_BADGE_CONTENT_OPTIONS: Array<{ id: VerticalBadgeContent; label: string }> = [
+  { id: 'standard', label: 'Standard' },
+  { id: 'stacked', label: 'Stacked' },
+];
+const AIOMETADATA_EPISODE_PROVIDER_OPTIONS: Array<{ id: AiometadataEpisodeProvider; label: string }> = [
+  { id: 'realimdb', label: 'IMDb' },
+  { id: 'tvdb', label: 'TVDB' },
+];
+const PROXY_EPISODE_PROVIDER_OPTIONS: Array<{ id: ProxyEpisodeProvider; label: string }> = [
+  { id: 'realimdb', label: 'IMDb' },
+  { id: 'custom', label: 'Custom' },
+];
 
 export function HomePageView({ refs, state, derived, actions }: HomePageViewProps) {
   const { navRef } = refs;
@@ -183,6 +211,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
     mdblistKey,
     simklClientId,
     proxyManifestUrl,
+    proxyAiometadataProvider,
     proxyEnabledTypes,
     proxyTranslateMeta,
     exportStatus,
@@ -192,6 +221,9 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
     posterRatingsMaxPerSide,
     backdropRatingsLayout,
     thumbnailRatingsLayout,
+    posterVerticalBadgeContent,
+    backdropVerticalBadgeContent,
+    thumbnailVerticalBadgeContent,
     thumbnailSize,
     qualityBadgesSide,
     posterQualityBadgesPosition,
@@ -199,11 +231,15 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
     proxyCopied,
     copied,
     aiometadataCopiedType,
+    aiometadataEpisodeProvider,
   } = state;
   const {
     baseUrl,
     previewUrl,
     proxyUrl,
+    currentVersion,
+    githubPackageVersion,
+    repoUrl,
     previewNotice,
     canGenerateConfig,
     canGenerateProxy,
@@ -242,7 +278,12 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
     setPosterRatingsMaxPerSide,
     setBackdropRatingsLayout,
     setThumbnailRatingsLayout,
+    setPosterVerticalBadgeContent,
+    setBackdropVerticalBadgeContent,
+    setThumbnailVerticalBadgeContent,
     setThumbnailSize,
+    setAiometadataEpisodeProvider,
+    setProxyAiometadataProvider,
     setPosterQualityBadgesPosition,
     setQualityBadgesSide,
     setRatingStyleForType,
@@ -257,6 +298,12 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
     toggleConfigStringVisibility,
     toggleProxyUrlVisibility,
   } = actions;
+  const shouldShowVerticalBadgeContent =
+    (previewType === 'poster' && isVerticalPosterRatingLayout(posterRatingsLayout)) ||
+    (previewType === 'backdrop' && backdropRatingsLayout === 'right-vertical') ||
+    (previewType === 'thumbnail' && thumbnailRatingsLayout.endsWith('-vertical'));
+  const activeVerticalBadgeContent =
+    previewType === 'poster' ? posterVerticalBadgeContent : previewType === 'thumbnail' ? thumbnailVerticalBadgeContent : backdropVerticalBadgeContent;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#06070b] text-slate-200 selection:bg-orange-400/30 font-[var(--font-body)]">
@@ -267,7 +314,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
 
       <div className="relative">
         <nav ref={navRef} className="sticky top-0 z-50 border-b border-white/10 bg-[#06070b]/80 backdrop-blur-xl">
-          <div className="mx-auto flex h-16 w-full items-center justify-between px-6">
+          <div className="mx-auto grid w-full grid-cols-1 gap-3 px-4 py-3 sm:px-6 lg:grid-cols-[auto_1fr_auto] lg:items-center lg:gap-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-400 via-amber-400 to-red-500 flex items-center justify-center shadow-[0_8px_24px_rgba(249,115,22,0.35)]">
                 <Star className="w-5 h-5 text-white fill-white" />
@@ -277,11 +324,28 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                 <span className="block text-[10px] uppercase tracking-[0.3em] text-orange-300">Stateless</span>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <a href="#preview" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">Configurator</a>
-              <a href="#proxy" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">Addon Proxy</a>
-              <a href="#docs" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">API Docs</a>
-              <a href="https://github.com/realbestia1/erdb" className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] text-slate-100 hover:bg-white/10 transition-colors">GitHub</a>
+            <div className="flex w-full flex-col gap-2 lg:items-center">
+              <div className="flex flex-wrap items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                <a href="#preview" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">Configurator</a>
+                <a href="#proxy" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">Addon Proxy</a>
+                <a href="#docs" onClick={handleAnchorClick} className="px-3 py-2 rounded-full hover:text-white hover:bg-white/[0.04] transition-colors">API Docs</a>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-center">
+                <div className={`rounded-full border px-3 py-2 text-[10px] normal-case tracking-normal ${githubPackageVersion && githubPackageVersion !== currentVersion ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>
+                  Current Version: v{currentVersion}
+                </div>
+                {githubPackageVersion && (
+                  <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] text-slate-300 normal-case tracking-normal">
+                    Latest Version: v{githubPackageVersion}
+                  </div>
+                )}
+                <a
+                  href={repoUrl || 'https://github.com/realbestia1/erdb'}
+                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] text-slate-100 hover:bg-white/10 transition-colors"
+                >
+                  GitHub
+                </a>
             </div>
           </div>
         </nav>
@@ -565,6 +629,19 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                         </div>
                       </div>
                     )}
+                    {shouldShowVerticalBadgeContent && (
+                      <div className="rounded-xl border border-white/10 bg-white/[0.04] p-2.5 space-y-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Vertical Badge Content</div>
+                        <div className="flex flex-wrap gap-1">
+                          {VERTICAL_BADGE_CONTENT_OPTIONS.map(option => (
+                            <button key={option.id} onClick={() => (previewType === 'poster' ? setPosterVerticalBadgeContent(option.id) : previewType === 'thumbnail' ? setThumbnailVerticalBadgeContent(option.id) : setBackdropVerticalBadgeContent(option.id))} className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${activeVerticalBadgeContent === option.id ? 'border-orange-500/60 bg-[#141b26] text-white' : 'border-white/10 bg-[#0b0f15] text-slate-400 hover:text-white'}`}>
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-slate-500">For vertical layouts, keep badges standard or stack icon and value vertically.</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -629,6 +706,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                     onReorder={reorderRatingPreference}
                     onToggle={toggleRatingPreference}
                     fillDirection="column"
+                    singleColumnOnMobile
                   />
                 </div>
               </div>
@@ -746,6 +824,26 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                       className="w-full bg-[#080b10] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white focus:border-orange-500/50 outline-none"
                     />
                   </div>
+                  {proxyManifestUrl.toLowerCase().includes('aiometadata') && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-500">The proxy cannot reliably distinguish AIOMetadata series from anime in every case, so use the same provider for both. Select <span className="text-slate-300 font-medium">IMDb</span> if AIOMetadata uses IMDb as the meta provider for both series and anime, so ERDB can upgrade `tt...` IDs to `realimdb:`. If AIOMetadata uses TVDB internally but still forces IMDb `tt...` IDs in its output, the proxy cannot detect that and cannot convert those IDs to `tvdb:` automatically. Select <span className="text-slate-300 font-medium">Custom</span> to keep the addon IDs exactly as they are.</p>
+                      <div>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">AiOMetadata Series/Anime Provider</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {PROXY_EPISODE_PROVIDER_OPTIONS.map((option) => (
+                            <button
+                              key={`proxy-provider-${option.id}`}
+                              type="button"
+                              onClick={() => setProxyAiometadataProvider(option.id)}
+                              className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${proxyAiometadataProvider === option.id ? 'border-orange-500/60 bg-[#141b26] text-white' : 'border-white/10 bg-[#0b0f15] text-slate-400 hover:text-white'}`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">Enabled Types</span>
                     <div className="flex flex-wrap gap-1.5">
@@ -845,7 +943,21 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                 <Terminal className="w-5 h-5 text-orange-500" /> Aiometadata Patterns
               </h3>
             </div>
-            <p className="mt-2 text-sm text-slate-400 max-w-3xl">Copy these URL patterns directly into aiometadata.</p>
+            <p className="mt-2 text-sm text-slate-400 max-w-3xl">Choose whether AiOMetadata episode IDs should use `IMDb` or `TVDB`. Series and anime should use the same provider here. For anime, AiOMetadata may send a Kitsu ID in the season slot when TVDB mapping fails, so TVDB thumbnails can still be incorrect.</p>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[#080b10]/90 p-3">
+              <div className="text-[11px] font-semibold text-slate-400">AiOMetadata Series/Anime Provider</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {AIOMETADATA_EPISODE_PROVIDER_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    onClick={() => setAiometadataEpisodeProvider(option.id)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${aiometadataEpisodeProvider === option.id ? 'border-orange-500/60 bg-[#141b26] text-white' : 'border-white/10 bg-[#0b0f15] text-slate-400 hover:text-white'}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
               {([
                 ['poster', 'Poster URL Pattern'],
@@ -1029,7 +1141,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                       </tr>
                       <tr>
                         <td className="px-5 py-2 font-mono text-orange-400 text-xs">backdropRatingsLayout</td>
-                        <td className="px-5 py-2 text-slate-400 text-xs">center, right, right-vertical</td>
+                        <td className="px-5 py-2 text-slate-400 text-xs">center, right-vertical</td>
                         <td className="px-5 py-2 text-slate-500 text-xs">center</td>
                       </tr>
                       <tr>
@@ -1041,6 +1153,11 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                         <td className="px-5 py-2 font-mono text-orange-400 text-xs">thumbnailSize</td>
                         <td className="px-5 py-2 text-slate-400 text-xs">small, medium, large</td>
                         <td className="px-5 py-2 text-slate-500 text-xs">medium</td>
+                      </tr>
+                      <tr>
+                        <td className="px-5 py-2 font-mono text-orange-400 text-xs">posterVerticalBadgeContent / backdropVerticalBadgeContent / thumbnailVerticalBadgeContent</td>
+                        <td className="px-5 py-2 text-slate-400 text-xs">standard, stacked (vertical layouts only)</td>
+                        <td className="px-5 py-2 text-slate-500 text-xs">standard</td>
                       </tr>
                       <tr>
                         <td className="px-5 py-2 font-mono text-orange-400 text-xs">tmdbKey <span className="font-bold">(req)</span></td>
@@ -1080,6 +1197,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                             <div>imageText</div>
                             <div>posterRatingsLayout</div>
                             <div>posterRatingsMaxPerSide</div>
+                            <div>posterVerticalBadgeContent</div>
                           </div>
                         </td>
                         <td className="px-5 py-2 text-slate-400 text-xs">
@@ -1087,6 +1205,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                             <div>original, clean, alternative</div>
                             <div>top, bottom, left, right, top-bottom, left-right</div>
                             <div>1-20 (auto if omitted)</div>
+                            <div>standard, stacked (when using left/right vertical poster layouts)</div>
                           </div>
                         </td>
                       </tr>
@@ -1096,12 +1215,14 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                           <div className="space-y-1">
                             <div>imageText</div>
                             <div>backdropRatingsLayout</div>
+                            <div>backdropVerticalBadgeContent</div>
                           </div>
                         </td>
                         <td className="px-5 py-2 text-slate-400 text-xs">
                           <div className="space-y-1">
                             <div>original, clean, alternative</div>
-                            <div>center, right, right-vertical</div>
+                            <div>center, right-vertical</div>
+                            <div>standard, stacked (when using right-vertical)</div>
                           </div>
                         </td>
                       </tr>
@@ -1111,12 +1232,14 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                           <div className="space-y-1">
                             <div>thumbnailRatingsLayout</div>
                             <div>thumbnailSize</div>
+                            <div>thumbnailVerticalBadgeContent</div>
                           </div>
                         </td>
                         <td className="px-5 py-2 text-slate-400 text-xs">
                           <div className="space-y-1">
                             <div>thumbnail-specific layout options</div>
                             <div>small, medium, large</div>
+                            <div>standard, stacked (when using a vertical thumbnail layout)</div>
                             <div>Uses episode stills and episode TMDB/IMDb ratings</div>
                           </div>
                         </td>
@@ -1130,7 +1253,7 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                   </table>
                 </div>
                 <div className="px-5 pb-5 pt-3 text-[11px] text-slate-500">
-                  Base params for all types: ratings (global fallback), lang, ratingStyle, tmdbKey, mdblistKey, simklClientId. Use posterRatings/backdropRatings/logoRatings to override per type.
+                  Base params for all types: ratings (global fallback), lang, ratingStyle, tmdbKey, mdblistKey, simklClientId. Use `posterVerticalBadgeContent` for poster vertical layouts, `backdropVerticalBadgeContent` for backdrop vertical layouts, and `thumbnailVerticalBadgeContent` for thumbnail vertical layouts.
                 </div>
               </div>
 
@@ -1200,6 +1323,12 @@ export function HomePageView({ refs, state, derived, actions }: HomePageViewProp
                     <span className="text-orange-400 font-bold">posterRatingsMaxPerSide</span>=<span className="text-slate-400 font-bold">{'{max}'}</span>
                     <span className="text-white">&</span>
                     <span className="text-orange-400 font-bold">backdropRatingsLayout</span>=<span className="text-slate-400 font-bold">{'{bLayout}'}</span>
+                    <span className="text-white">&</span>
+                    <span className="text-orange-400 font-bold">posterVerticalBadgeContent</span>=<span className="text-slate-400 font-bold">{'{posterVerticalBadgeContent}'}</span>
+                    <span className="text-white">&</span>
+                    <span className="text-orange-400 font-bold">backdropVerticalBadgeContent</span>=<span className="text-slate-400 font-bold">{'{backdropVerticalBadgeContent}'}</span>
+                    <span className="text-white">&</span>
+                    <span className="text-orange-400 font-bold">thumbnailVerticalBadgeContent</span>=<span className="text-slate-400 font-bold">{'{thumbnailVerticalBadgeContent}'}</span>
                     <span className="text-white">&</span>
                     <span className="text-orange-400 font-bold">tmdbKey</span>=<span className="text-slate-400 font-bold">{'{tmdbKey}'}</span>
                     <span className="text-white">&</span>
@@ -1303,8 +1432,11 @@ ratingStyle             | glass, square, plain                                  
 imageText               | original, clean, alternative                                         | original
 posterRatingsLayout     | top, bottom, left, right, top-bottom, left-right                     | top-bottom
 posterRatingsMaxPerSide | Number (1-20)                                                        | auto
-backdropRatingsLayout   | center, right, right-vertical                                        | center
+backdropRatingsLayout   | center, right-vertical                                               | center
 thumbnailRatingsLayout  | center + thumbnail-only side/top/bottom/vertical variants            | center
+posterVerticalBadgeContent   | standard, stacked (poster vertical layouts only)                 | standard
+backdropVerticalBadgeContent | standard, stacked (backdrop vertical layouts only)               | standard
+thumbnailVerticalBadgeContent| standard, stacked (thumbnail vertical layouts only)              | standard
 thumbnailSize           | small, medium, large                                                 | medium
 tmdbKey (REQUIRED)      | Your TMDB v3 API Key                                                 | -
 mdblistKey (REQUIRED)   | Your MDBList.com API Key                                             | -
@@ -1325,11 +1457,12 @@ thumbnail -> ratingStyle = cfg.backdropRatingStyle, thumbnailRatingsLayout = cfg
 logo     -> ratingStyle = cfg.logoRatingStyle (omit imageText)
 Ratings providers can be set per-type via cfg.posterRatings / cfg.backdropRatings / cfg.logoRatings (fallback to cfg.ratings). Thumbnail ratings are episode-level and currently support TMDB + IMDb only.
 Quality badges style can be set per-type via cfg.posterQualityBadgesStyle / cfg.backdropQualityBadgesStyle (fallback to cfg.qualityBadgesStyle).
+Use cfg.posterVerticalBadgeContent for poster vertical layouts, cfg.backdropVerticalBadgeContent for backdrop, and cfg.thumbnailVerticalBadgeContent for thumbnail vertical layouts when you want icon and value stacked instead of inline.
 
 --- URL BUILD ---
 const typeRatingStyle = type === 'poster' ? cfg.posterRatingStyle : type === 'backdrop' ? cfg.backdropRatingStyle : cfg.logoRatingStyle;
 const typeImageText = type === 'backdrop' ? cfg.backdropImageText : cfg.posterImageText;
-\${cfg.baseUrl}/\${type}/\${id}.jpg?tmdbKey=\${cfg.tmdbKey}&mdblistKey=\${cfg.mdblistKey}&simklClientId=\${cfg.simklClientId}&ratings=\${cfg.ratings}&posterRatings=\${cfg.posterRatings}&backdropRatings=\${cfg.backdropRatings}&logoRatings=\${cfg.logoRatings}&lang=\${cfg.lang}&streamBadges=\${cfg.streamBadges}&posterStreamBadges=\${cfg.posterStreamBadges}&backdropStreamBadges=\${cfg.backdropStreamBadges}&qualityBadgesSide=\${cfg.qualityBadgesSide}&posterQualityBadgesPosition=\${cfg.posterQualityBadgesPosition}&qualityBadgesStyle=\${cfg.qualityBadgesStyle}&posterQualityBadgesStyle=\${cfg.posterQualityBadgesStyle}&backdropQualityBadgesStyle=\${cfg.backdropQualityBadgesStyle}&ratingStyle=\${typeRatingStyle}&imageText=\${typeImageText}&posterRatingsLayout=\${cfg.posterRatingsLayout}&posterRatingsMaxPerSide=\${cfg.posterRatingsMaxPerSide}&backdropRatingsLayout=\${cfg.backdropRatingsLayout}
+\${cfg.baseUrl}/\${type}/\${id}.jpg?tmdbKey=\${cfg.tmdbKey}&mdblistKey=\${cfg.mdblistKey}&simklClientId=\${cfg.simklClientId}&ratings=\${cfg.ratings}&posterRatings=\${cfg.posterRatings}&backdropRatings=\${cfg.backdropRatings}&logoRatings=\${cfg.logoRatings}&lang=\${cfg.lang}&streamBadges=\${cfg.streamBadges}&posterStreamBadges=\${cfg.posterStreamBadges}&backdropStreamBadges=\${cfg.backdropStreamBadges}&qualityBadgesSide=\${cfg.qualityBadgesSide}&posterQualityBadgesPosition=\${cfg.posterQualityBadgesPosition}&qualityBadgesStyle=\${cfg.qualityBadgesStyle}&posterQualityBadgesStyle=\${cfg.posterQualityBadgesStyle}&backdropQualityBadgesStyle=\${cfg.backdropQualityBadgesStyle}&ratingStyle=\${typeRatingStyle}&imageText=\${typeImageText}&posterRatingsLayout=\${cfg.posterRatingsLayout}&posterRatingsMaxPerSide=\${cfg.posterRatingsMaxPerSide}&backdropRatingsLayout=\${cfg.backdropRatingsLayout}&posterVerticalBadgeContent=\${cfg.posterVerticalBadgeContent}&backdropVerticalBadgeContent=\${cfg.backdropVerticalBadgeContent}&thumbnailVerticalBadgeContent=\${cfg.thumbnailVerticalBadgeContent}
 
 For thumbnails use thumbnailRatingsLayout and thumbnailSize instead of imageText.
 Omit imageText when type=logo or type=thumbnail.
