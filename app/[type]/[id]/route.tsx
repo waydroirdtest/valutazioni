@@ -1142,7 +1142,7 @@ const fetchAnimemappingPayload = async ({
   }
   const query = searchParams.toString();
   const cacheKey = `animemapping:${provider}:${normalizedExternalId}:s:${normalizedSeason || '-'}:e:${normalizedEpisode || '-'}`;
-  const url = `https://animemapping.stremio.dpdns.org/${provider}/${encodeURIComponent(normalizedExternalId)}${query ? `?${query}` : ''}`;
+  const url = `https://animemapping.realbestia.com/${provider}/${encodeURIComponent(normalizedExternalId)}${query ? `?${query}` : ''}`;
 
   try {
     const response = await fetchJsonCached(
@@ -1389,6 +1389,23 @@ const fetchKitsuFallbackAsset = async (
 const fetchKitsuRating = async (kitsuId: string, phases: PhaseDurations) => {
   const attributes = await fetchKitsuAnimeAttributes(kitsuId, phases);
   return normalizeRatingValue(attributes?.averageRating);
+};
+
+// Older proxy URLs may still include a placeholder season: `kitsu:id:season:episode`.
+const parseKitsuInputParts = (parts: string[]) => {
+  const mediaId = parts[1] || '';
+  if (parts.length >= 4) {
+    return {
+      mediaId,
+      season: null,
+      episode: parts[3] || null,
+    };
+  }
+  return {
+    mediaId,
+    season: null,
+    episode: parts.length > 2 ? parts[2] : null,
+  };
 };
 
 const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
@@ -4561,7 +4578,14 @@ export async function GET(
     request.nextUrl.searchParams.get('backdropVerticalBadgeContent') ||
     request.nextUrl.searchParams.get('verticalBadgeContent')
   );
-  const verticalBadgeContent = imageType === 'poster' ? posterVerticalBadgeContent : imageType === 'thumbnail' ? thumbnailVerticalBadgeContent : backdropVerticalBadgeContent;
+  const verticalBadgeContent =
+    imageType === 'poster'
+      ? posterVerticalBadgeContent
+      : imageType === 'thumbnail'
+        ? thumbnailVerticalBadgeContent
+        : imageType === 'backdrop'
+          ? backdropVerticalBadgeContent
+          : 'standard';
   const thumbnailSize = normalizeThumbnailSize(request.nextUrl.searchParams.get('thumbnailSize'));
   const globalStreamBadgesSetting = normalizeStreamBadgesSetting(request.nextUrl.searchParams.get('streamBadges'));
   const posterStreamBadgesSetting = normalizeStreamBadgesSetting(
@@ -4663,8 +4687,10 @@ export async function GET(
     episode = parts.length > 3 ? parts[3] : null;
   } else if (idPrefix === 'kitsu') {
     isKitsu = true;
-    mediaId = parts[1];
-    episode = parts.length > 2 ? parts[2] : null;
+    const parsedKitsu = parseKitsuInputParts(parts);
+    mediaId = parsedKitsu.mediaId;
+    season = parsedKitsu.season;
+    episode = parsedKitsu.episode;
   } else if (idPrefix === 'imdb' && inputAnimeMappingExternalId) {
     mediaId = inputAnimeMappingExternalId;
     season = parts.length > 2 ? parts[2] : null;
@@ -4893,7 +4919,7 @@ export async function GET(
           }
         }
       } else if (isKitsu) {
-        let mappingUrl = `https://animemapping.stremio.dpdns.org/kitsu/${mediaId}`;
+        let mappingUrl = `https://animemapping.realbestia.com/kitsu/${mediaId}`;
         if (episode) {
           mappingUrl += `?ep=${episode}`;
         }
@@ -4935,7 +4961,7 @@ export async function GET(
         if (mappingSubtype !== 'movie' && !season) {
           const seasonProbeResponse = await fetchJsonCached(
             `kitsu:mapping:${mediaId}:1`,
-            `https://animemapping.stremio.dpdns.org/kitsu/${mediaId}?ep=1`,
+            `https://animemapping.realbestia.com/kitsu/${mediaId}?ep=1`,
             KITSU_CACHE_TTL_MS,
             phases,
             'tmdb'

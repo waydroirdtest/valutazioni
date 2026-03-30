@@ -124,7 +124,7 @@ const resolveAnimeToTmdb = async (
   provider: string,
   externalId: string,
 ) => {
-  const url = `https://animemapping.stremio.dpdns.org/${provider}/${encodeURIComponent(externalId)}?ep=1`;
+  const url = `https://animemapping.realbestia.com/${provider}/${encodeURIComponent(externalId)}?ep=1`;
   const data = await fetchAnimemappingJson(url);
   if (!data) return null;
   
@@ -570,6 +570,14 @@ const isTypeEnabled = (config: ProxyConfig, type: 'poster' | 'backdrop' | 'logo'
   return config.thumbnailEnabled !== false;
 };
 
+// Kitsu episode thumbnails use a seasonless `kitsu:id:episode` shape.
+const buildEpisodeErdbId = (baseErdbId: string, seasonValue: number, episodeValue: number) => {
+  if (baseErdbId.toLowerCase().startsWith('kitsu:')) {
+    return `${baseErdbId}:${episodeValue}`;
+  }
+  return `${baseErdbId}:${seasonValue}:${episodeValue}`;
+};
+
 const rewriteMetaVideoThumbnails = (
   meta: Record<string, unknown>,
   requestUrl: URL,
@@ -599,7 +607,7 @@ const rewriteMetaVideoThumbnails = (
       return video;
     }
 
-    const episodeErdbId = `${erdbId}:${seasonValue}:${episodeValue}`;
+    const episodeErdbId = buildEpisodeErdbId(erdbId, seasonValue, episodeValue);
     return {
       ...typedVideo,
       thumbnail: buildErdbImageUrl({
