@@ -8,8 +8,6 @@ ERDB generates poster/backdrop/logo/thumbnail images with dynamic ratings on-the
 
 [![Support on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/realbestia)
 
-Quick links: [Releases](https://github.com/realbestia1/erdb/releases) | [Changelog](../CHANGELOG.md) | [Docker Package](https://github.com/realbestia1/erdb/pkgs/container/erdb) | [Ko-fi](https://ko-fi.com/realbestia)
-
 ## Quick Start
 
 ## Install From GitHub
