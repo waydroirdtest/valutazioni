@@ -48,6 +48,10 @@ import {
   type PosterRatingLayout,
 } from '@/lib/posterRatingLayout';
 import {
+  DEFAULT_LOGO_RATINGS_MAX,
+  normalizeLogoRatingsMax,
+} from '@/lib/logoRatingsMax';
+import {
   DEFAULT_RATING_STYLE,
   RATING_STYLE_OPTIONS,
   type RatingStyle,
@@ -221,6 +225,14 @@ const decodeBase64Url = (value: string) => {
   return new TextDecoder().decode(bytes);
 };
 
+const EMPTY_ENABLED_RATING_QUERY_KEYS = new Set([
+  'ratings',
+  'posterRatings',
+  'backdropRatings',
+  'thumbnailRatings',
+  'logoRatings',
+]);
+
 const buildAiometadataPattern = (options: {
   baseUrl: string;
   imageType: 'poster' | 'backdrop' | 'logo' | 'thumbnail';
@@ -233,6 +245,7 @@ const buildAiometadataPattern = (options: {
   backdropRatings: string;
   thumbnailRatings: string;
   logoRatings: string;
+  logoRatingsMax: number | null;
   posterStreamBadges: StreamBadgesSetting;
   backdropStreamBadges: StreamBadgesSetting;
   shouldShowPosterQualityBadgesSide: boolean;
@@ -267,6 +280,7 @@ const buildAiometadataPattern = (options: {
     backdropRatings,
     thumbnailRatings,
     logoRatings,
+    logoRatingsMax,
     posterStreamBadges,
     backdropStreamBadges,
     shouldShowPosterQualityBadgesSide,
@@ -351,11 +365,14 @@ const buildAiometadataPattern = (options: {
     }
   } else {
     params.push(['logoRatings', logoRatings]);
+    if (logoRatingsMax !== null) {
+      params.push(['logoRatingsMax', String(logoRatingsMax)]);
+    }
     params.push(['ratingStyle', logoRatingStyle]);
   }
 
   const query = params
-    .filter(([, value]) => value !== '')
+    .filter(([key, value]) => value !== '' || EMPTY_ENABLED_RATING_QUERY_KEYS.has(key))
     .map(([key, value]) => `${key}=${value}`)
     .join('&');
 
@@ -384,7 +401,10 @@ const buildAiometadataPatternBlock = (options: {
 
   const pushIfString = (key: string) => {
     const value = config[key];
-    if (typeof value === 'string' && value !== '') {
+    if (
+      typeof value === 'string' &&
+      (value !== '' || EMPTY_ENABLED_RATING_QUERY_KEYS.has(key))
+    ) {
       params.push([key, value]);
     }
   };
@@ -444,8 +464,9 @@ const buildAiometadataPatternBlock = (options: {
     pushIfString(options.imageType === 'thumbnail' ? 'thumbnailRatingsLayout' : 'backdropRatingsLayout');
     pushIfString(options.imageType === 'thumbnail' ? 'thumbnailVerticalBadgeContent' : 'backdropVerticalBadgeContent');
     if (options.imageType === 'thumbnail') {
-      const thumbnailRatings = filterThumbnailRatings(config.thumbnailRatings ?? config.ratings);
-      if (thumbnailRatings) {
+      const thumbnailRatingsSource = config.thumbnailRatings ?? config.ratings;
+      const thumbnailRatings = filterThumbnailRatings(thumbnailRatingsSource);
+      if (typeof thumbnailRatingsSource === 'string') {
         params.push(['ratings', thumbnailRatings]);
       }
       pushIfString('thumbnailSize');
@@ -454,13 +475,16 @@ const buildAiometadataPatternBlock = (options: {
     }
   } else {
     pushIfString('logoRatings');
+    if (typeof config.logoRatingsMax === 'string' || typeof config.logoRatingsMax === 'number') {
+      params.push(['logoRatingsMax', String(config.logoRatingsMax)]);
+    }
     if (typeof config.logoRatingStyle === 'string' && config.logoRatingStyle !== '') {
       params.push(['ratingStyle', config.logoRatingStyle]);
     }
   }
 
   const query = params
-    .filter(([, value]) => value !== '')
+    .filter(([key, value]) => value !== '' || EMPTY_ENABLED_RATING_QUERY_KEYS.has(key))
     .map(([key, value]) => `${key}=${value}`)
     .join('&');
 
@@ -530,6 +554,7 @@ export default function Home() {
   const [backdropRatingStyle, setBackdropRatingStyle] = useState<RatingStyle>(DEFAULT_RATING_STYLE);
   const [logoRatingStyle, setLogoRatingStyle] = useState<RatingStyle>('plain');
   const [posterRatingsMaxPerSide, setPosterRatingsMaxPerSide] = useState<number | null>(DEFAULT_POSTER_RATINGS_MAX_PER_SIDE);
+  const [logoRatingsMax, setLogoRatingsMax] = useState<number | null>(DEFAULT_LOGO_RATINGS_MAX);
   const [tmdbLanguages, setTmdbLanguages] = useState<TmdbConfigurationLanguage[]>([]);
   const [tmdbPrimaryTranslations, setTmdbPrimaryTranslations] = useState<string[]>([]);
   const [mdblistKey, setMdblistKey] = useState('');
@@ -896,6 +921,7 @@ backdropRatings         | tmdb, mdblist, imdb, tomatoes, tomatoesaudience, lette
 logoRatings             | tmdb, mdblist, imdb, tomatoes, tomatoesaudience, letterboxd,         | all
                         | metacritic, metacriticuser, trakt, simkl, rogerebert,               |
                         | myanimelist, anilist, kitsu (logo only)                             |
+logoRatingsMax          | Number (1-20)                                                        | auto
 lang                    | ${TMDB_LANGUAGE_DOC_EXAMPLES}                 | en
 streamBadges            | auto, on, off (global fallback)                                      | auto
 posterStreamBadges      | auto, on, off (poster only)                                          | auto
@@ -931,7 +957,7 @@ LANG NOTE: Pass cfg.lang through exactly as the TMDB language code provided by E
 poster   -> ratingStyle = cfg.posterRatingStyle, imageText = cfg.posterImageText
 backdrop -> ratingStyle = cfg.backdropRatingStyle, imageText = cfg.backdropImageText
 thumbnail -> ratingStyle = cfg.backdropRatingStyle, thumbnailRatingsLayout = cfg.thumbnailRatingsLayout, thumbnailSize = cfg.thumbnailSize, ratings = cfg.thumbnailRatings ?? cfg.ratings filtered to TMDB/IMDb
-logo     -> ratingStyle = cfg.logoRatingStyle (omit imageText)
+logo     -> ratingStyle = cfg.logoRatingStyle, logoRatingsMax = cfg.logoRatingsMax (omit imageText)
 Ratings providers can be set per-type via cfg.posterRatings / cfg.backdropRatings / cfg.thumbnailRatings / cfg.logoRatings (fallback to cfg.ratings). Thumbnail ratings are episode-level and currently support TMDB + IMDb only.
 Quality badges style can be set per-type via cfg.posterQualityBadgesStyle / cfg.backdropQualityBadgesStyle (fallback to cfg.qualityBadgesStyle).
 Use cfg.posterVerticalBadgeContent for poster vertical layouts, cfg.backdropVerticalBadgeContent for backdrop, and cfg.thumbnailVerticalBadgeContent for thumbnail vertical layouts when you want icon and value stacked instead of inline.
@@ -939,7 +965,7 @@ Use cfg.posterVerticalBadgeContent for poster vertical layouts, cfg.backdropVert
 --- URL BUILD ---
 const typeRatingStyle = type === 'poster' ? cfg.posterRatingStyle : type === 'backdrop' ? cfg.backdropRatingStyle : cfg.logoRatingStyle;
 const typeImageText = type === 'backdrop' ? cfg.backdropImageText : cfg.posterImageText;
-\${cfg.baseUrl}/\${type}/\${id}.jpg?tmdbKey=\${cfg.tmdbKey}&mdblistKey=\${cfg.mdblistKey}&simklClientId=\${cfg.simklClientId}&ratings=\${cfg.ratings}&posterRatings=\${cfg.posterRatings}&backdropRatings=\${cfg.backdropRatings}&thumbnailRatings=\${cfg.thumbnailRatings}&logoRatings=\${cfg.logoRatings}&lang=\${cfg.lang}&streamBadges=\${cfg.streamBadges}&posterStreamBadges=\${cfg.posterStreamBadges}&backdropStreamBadges=\${cfg.backdropStreamBadges}&qualityBadgesSide=\${cfg.qualityBadgesSide}&posterQualityBadgesPosition=\${cfg.posterQualityBadgesPosition}&qualityBadgesStyle=\${cfg.qualityBadgesStyle}&posterQualityBadgesStyle=\${cfg.posterQualityBadgesStyle}&backdropQualityBadgesStyle=\${cfg.backdropQualityBadgesStyle}&ratingStyle=\${typeRatingStyle}&imageText=\${typeImageText}&posterRatingsLayout=\${cfg.posterRatingsLayout}&posterRatingsMaxPerSide=\${cfg.posterRatingsMaxPerSide}&backdropRatingsLayout=\${cfg.backdropRatingsLayout}&posterVerticalBadgeContent=\${cfg.posterVerticalBadgeContent}&backdropVerticalBadgeContent=\${cfg.backdropVerticalBadgeContent}&thumbnailVerticalBadgeContent=\${cfg.thumbnailVerticalBadgeContent}
+\${cfg.baseUrl}/\${type}/\${id}.jpg?tmdbKey=\${cfg.tmdbKey}&mdblistKey=\${cfg.mdblistKey}&simklClientId=\${cfg.simklClientId}&ratings=\${cfg.ratings}&posterRatings=\${cfg.posterRatings}&backdropRatings=\${cfg.backdropRatings}&thumbnailRatings=\${cfg.thumbnailRatings}&logoRatings=\${cfg.logoRatings}&logoRatingsMax=\${cfg.logoRatingsMax}&lang=\${cfg.lang}&streamBadges=\${cfg.streamBadges}&posterStreamBadges=\${cfg.posterStreamBadges}&backdropStreamBadges=\${cfg.backdropStreamBadges}&qualityBadgesSide=\${cfg.qualityBadgesSide}&posterQualityBadgesPosition=\${cfg.posterQualityBadgesPosition}&qualityBadgesStyle=\${cfg.qualityBadgesStyle}&posterQualityBadgesStyle=\${cfg.posterQualityBadgesStyle}&backdropQualityBadgesStyle=\${cfg.backdropQualityBadgesStyle}&ratingStyle=\${typeRatingStyle}&imageText=\${typeImageText}&posterRatingsLayout=\${cfg.posterRatingsLayout}&posterRatingsMaxPerSide=\${cfg.posterRatingsMaxPerSide}&backdropRatingsLayout=\${cfg.backdropRatingsLayout}&posterVerticalBadgeContent=\${cfg.posterVerticalBadgeContent}&backdropVerticalBadgeContent=\${cfg.backdropVerticalBadgeContent}&thumbnailVerticalBadgeContent=\${cfg.thumbnailVerticalBadgeContent}
 
 For thumbnails use thumbnailRatingsLayout and thumbnailSize instead of imageText.
 Omit imageText when type=logo or type=thumbnail.
@@ -987,6 +1013,9 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
       query.set('thumbnailRatings', ratingsQuery);
     } else {
       query.set('logoRatings', ratingsQuery);
+      if (logoRatingsMax !== null) {
+        query.set('logoRatingsMax', String(logoRatingsMax));
+      }
     }
     if (previewType !== 'logo' && previewType !== 'thumbnail' && streamBadgesForType !== 'auto') {
       query.set(
@@ -1077,6 +1106,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     shouldShowQualityBadgesPosition,
     posterRatingsLayout,
     posterRatingsMaxPerSide,
+    logoRatingsMax,
     backdropRatingsLayout,
     thumbnailRatingsLayout,
     posterVerticalBadgeContent,
@@ -1171,6 +1201,9 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     if (isVerticalPosterRatingLayout(posterRatingsLayout) && posterRatingsMaxPerSide !== null) {
       config.posterRatingsMaxPerSide = posterRatingsMaxPerSide;
     }
+    if (logoRatingsMax !== null) {
+      config.logoRatingsMax = logoRatingsMax;
+    }
     if (backdropRatingsLayout) {
       config.backdropRatingsLayout = backdropRatingsLayout;
     }
@@ -1222,6 +1255,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     backdropImageText,
     posterRatingsLayout,
     posterRatingsMaxPerSide,
+    logoRatingsMax,
     backdropRatingsLayout,
     thumbnailRatingsLayout,
     posterVerticalBadgeContent,
@@ -1322,6 +1356,9 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     if (isVerticalPosterRatingLayout(posterRatingsLayout) && posterRatingsMaxPerSide !== null) {
       config.posterRatingsMaxPerSide = String(posterRatingsMaxPerSide);
     }
+    if (logoRatingsMax !== null) {
+      config.logoRatingsMax = String(logoRatingsMax);
+    }
     if (backdropRatingsLayout) {
       config.backdropRatingsLayout = backdropRatingsLayout;
     }
@@ -1380,6 +1417,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     backdropImageText,
     posterRatingsLayout,
     posterRatingsMaxPerSide,
+    logoRatingsMax,
     backdropRatingsLayout,
     thumbnailRatingsLayout,
     posterVerticalBadgeContent,
@@ -1557,6 +1595,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
       logoRatingStyle,
       posterRatingsLayout,
       posterRatingsMaxPerSide,
+      logoRatingsMax,
       backdropRatingsLayout,
       thumbnailRatingsLayout,
       posterVerticalBadgeContent,
@@ -1680,6 +1719,11 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
       if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 20) {
         setPosterRatingsMaxPerSide(parsed);
       }
+    }
+    if (payload.logoRatingsMax === null) {
+      setLogoRatingsMax(null);
+    } else if (typeof payload.logoRatingsMax === 'number' || typeof payload.logoRatingsMax === 'string') {
+      setLogoRatingsMax(normalizeLogoRatingsMax(payload.logoRatingsMax));
     }
 
     const normalizeRatingArray = (value: unknown) => {
@@ -1873,6 +1917,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
     logoRatingStyle,
     posterRatingsLayout,
     posterRatingsMaxPerSide,
+    logoRatingsMax,
     backdropRatingsLayout,
     thumbnailRatingsLayout,
     posterVerticalBadgeContent,
@@ -2034,6 +2079,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
       importMessage,
       posterRatingsLayout,
       posterRatingsMaxPerSide,
+      logoRatingsMax,
       backdropRatingsLayout,
       thumbnailRatingsLayout,
       posterVerticalBadgeContent,
@@ -2093,6 +2139,7 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
         setSimklClientId,
       setPosterRatingsLayout,
       setPosterRatingsMaxPerSide,
+      setLogoRatingsMax,
       setBackdropRatingsLayout,
       setThumbnailRatingsLayout,
       setPosterVerticalBadgeContent,

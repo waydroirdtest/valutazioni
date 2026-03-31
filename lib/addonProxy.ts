@@ -25,7 +25,7 @@ const ERDB_OPTIONAL_PARAMS = [
 const ERDB_TYPE_OPTIONAL_PARAMS = {
   poster: ['posterStreamBadges', 'posterQualityBadgesStyle', 'posterRatings'],
   backdrop: ['backdropStreamBadges', 'backdropQualityBadgesStyle', 'backdropRatings'],
-  logo: ['logoRatings'],
+  logo: ['logoRatings', 'logoRatingsMax'],
   thumbnail: ['backdropStreamBadges', 'backdropQualityBadgesStyle', 'thumbnailRatings'],
 } as const;
 const ERDB_OPTIONAL_PARAM_KEYS = [
@@ -92,6 +92,7 @@ export type ProxyConfig = {
   backdropRatings?: string;
   thumbnailRatings?: string;
   logoRatings?: string;
+  logoRatingsMax?: string;
   lang?: string;
   streamBadges?: string;
   posterStreamBadges?: string;
@@ -135,6 +136,7 @@ const PROXY_OPTIONAL_STRING_KEYS = [
   'backdropRatings',
   'thumbnailRatings',
   'logoRatings',
+  'logoRatingsMax',
   'simklClientId',
   'lang',
   'streamBadges',

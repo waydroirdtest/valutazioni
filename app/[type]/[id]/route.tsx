@@ -31,6 +31,7 @@ import {
   normalizePosterRatingsMaxPerSide,
   type PosterRatingLayout,
 } from '@/lib/posterRatingLayout';
+import { normalizeLogoRatingsMax } from '@/lib/logoRatingsMax';
 import {
   DEFAULT_RATING_STYLE,
   normalizeRatingStyle,
@@ -4684,6 +4685,7 @@ export async function GET(
   const imageText = imageTextParam || (type === 'backdrop' ? 'clean' : 'original');
   const posterRatingsLayout = normalizePosterRatingLayout(request.nextUrl.searchParams.get('posterRatingsLayout'));
   const posterRatingsMaxPerSide = normalizePosterRatingsMaxPerSide(request.nextUrl.searchParams.get('posterRatingsMaxPerSide'));
+  const logoRatingsMax = normalizeLogoRatingsMax(request.nextUrl.searchParams.get('logoRatingsMax'));
   const backdropRatingsLayout = normalizeBackdropRatingLayout(request.nextUrl.searchParams.get('backdropRatingsLayout'));
   const thumbnailRatingsLayout = normalizeThumbnailRatingLayout(
     request.nextUrl.searchParams.get('thumbnailRatingsLayout')
@@ -4888,6 +4890,7 @@ export async function GET(
     posterTextPreference,
     imageType === 'poster' ? posterRatingsLayout : '-',
     imageType === 'poster' ? String(posterRatingsMaxPerSide ?? 'auto') : '-',
+    imageType === 'logo' ? String(logoRatingsMax ?? 'auto') : '-',
     imageType === 'poster' ? qualityBadgesSide : '-',
     imageType === 'poster' && (posterRatingsLayout === 'top' || posterRatingsLayout === 'bottom')
       ? posterQualityBadgesPosition
@@ -5433,6 +5436,7 @@ export async function GET(
         posterTextPreference,
         imageType === 'poster' ? posterRatingsLayout : '-',
         imageType === 'poster' ? String(posterRatingsMaxPerSide ?? 'auto') : '-',
+        imageType === 'logo' ? String(logoRatingsMax ?? 'auto') : '-',
         imageType === 'poster' ? qualityBadgesSide : '-',
         imageType === 'poster' && (posterRatingsLayout === 'top' || posterRatingsLayout === 'bottom')
           ? posterQualityBadgesPosition
@@ -6558,11 +6562,14 @@ export async function GET(
       const posterRatingLimit = usePosterBadgeLayout
         ? getPosterRatingLayoutMaxBadges(posterRatingsLayout, posterRatingsMaxPerSide)
         : null;
+      const logoRatingLimit = useLogoBadgeLayout ? logoRatingsMax : null;
       let cappedRatingBadges = usePosterBadgeLayout
         ? (typeof posterRatingLimit === 'number' ? ratingBadges.slice(0, posterRatingLimit) : [...ratingBadges])
         : useBackdropBadgeLayout
           ? [...ratingBadges]
-          : [...ratingBadges];
+          : useLogoBadgeLayout
+            ? (typeof logoRatingLimit === 'number' ? ratingBadges.slice(0, logoRatingLimit) : [...ratingBadges])
+            : [...ratingBadges];
       const backdropRows =
         useBackdropBadgeLayout && !useBackdropVerticalLayout ? chunkBy(cappedRatingBadges, 3) : [];
       let backdropColumns: RatingBadge[][] | undefined = undefined;
