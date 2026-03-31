@@ -4,12 +4,14 @@ export const RATING_PROVIDER_OPTIONS = [
     label: 'TMDB',
     iconUrl: 'https://www.google.com/s2/favicons?domain=themoviedb.org&sz=64',
     accentColor: '#01b4e4',
+    iconScale: 1.08,
   },
   {
     id: 'mdblist',
     label: 'MDBList',
     iconUrl: 'https://www.google.com/s2/favicons?domain=mdblist.com&sz=64',
     accentColor: '#f97316',
+    iconScale: 1.08,
   },
   {
     id: 'imdb',
@@ -17,6 +19,7 @@ export const RATING_PROVIDER_OPTIONS = [
     iconUrl: 'https://static0.anpoimages.com/wordpress/wp-content/uploads/2011/07/hi-512-3.png',
     accentColor: '#f5c518',
     iconCornerRadius: 8,
+    iconScale: 1.06,
   },
   {
     id: 'tomatoes',
@@ -61,6 +64,7 @@ export const RATING_PROVIDER_OPTIONS = [
     iconUrl: 'https://www.google.com/s2/favicons?domain=simkl.com&sz=64',
     accentColor: '#00b4ff',
     iconCornerRadius: 16,
+    iconScale: 0.88,
   },
   {
     id: 'rogerebert',

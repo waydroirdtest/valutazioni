@@ -125,7 +125,7 @@ const parseNonNegativeInt = (value?: string | null, max = Number.MAX_SAFE_INTEGE
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return Math.min(max, Math.floor(parsed));
 };
-const FINAL_IMAGE_RENDERER_CACHE_VERSION = 'poster-backdrop-logo-thumbnail-v46';
+const FINAL_IMAGE_RENDERER_CACHE_VERSION = 'poster-backdrop-logo-thumbnail-v49';
 const TMDB_CACHE_TTL_MS = parseCacheTtlMs(
   process.env.ERDB_TMDB_CACHE_TTL_MS,
   3 * 24 * 60 * 60 * 1000,
@@ -412,6 +412,7 @@ type RatingBadge = {
   iconUrl: string;
   accentColor: string;
   iconCornerRadius?: number;
+  iconScale?: number;
 };
 type OutputFormat = 'png' | 'jpeg' | 'webp';
 const RATING_PROVIDER_META = new Map(
@@ -3112,6 +3113,7 @@ const buildBadgeSvg = ({
   monogram,
   iconDataUri,
   iconCornerRadius = 0,
+  iconScale,
   value,
   ratingStyle,
   compactText = false,
@@ -3127,6 +3129,7 @@ const buildBadgeSvg = ({
   monogram: string;
   iconDataUri?: string | null;
   iconCornerRadius?: number;
+  iconScale?: number;
   value: string;
   ratingStyle: RatingStyle;
   compactText?: boolean;
@@ -3151,6 +3154,15 @@ const buildBadgeSvg = ({
   const iconCx = iconX + Math.round(iconSize / 2);
   const iconCy = iconY + Math.round(iconSize / 2);
   const iconFontSize = Math.max(12, Math.round(iconSize * 0.42));
+  const resolvedIconScale =
+    typeof iconScale === 'number' && Number.isFinite(iconScale)
+      ? Math.max(0.5, Math.min(1.15, iconScale))
+      : 1;
+  const baseRenderedIconSize = ratingStyle === 'plain' ? iconSize - 2 : iconSize - 3;
+  const renderedIconSize = Math.max(1, Math.round(baseRenderedIconSize * resolvedIconScale));
+  const iconImageOffset = (baseRenderedIconSize - renderedIconSize) / 2;
+  const iconImageX = (ratingStyle === 'plain' ? iconX + 1 : iconX + 1.5) + iconImageOffset;
+  const iconImageY = (ratingStyle === 'plain' ? iconY + 1 : iconY + 1.5) + iconImageOffset;
   const valueX = contentLayout === 'stacked' ? Math.round(width / 2) : iconX + iconSize + innerGap;
   const valueY =
     contentLayout === 'stacked'
@@ -3171,7 +3183,7 @@ const buildBadgeSvg = ({
     : `'Noto Sans','DejaVu Sans',Arial,sans-serif`;
   const valueLetterSpacing = compactText ? ' letter-spacing="-0.04em"' : '';
   const iconShape =
-    ratingStyle === 'plain'
+    ratingStyle === 'plain' || iconDataUri
       ? ''
       : ratingStyle === 'square'
         ? `<rect x="${iconX + 0.75}" y="${iconY + 0.75}" width="${Math.max(0, iconSize - 1.5)}" height="${Math.max(0, iconSize - 1.5)}" rx="${Math.max(4, iconCornerRadius || iconRadius)}" fill="rgb(10,10,10)" />`
@@ -3183,7 +3195,7 @@ const buildBadgeSvg = ({
         ? `<rect x="${iconX + 1.5}" y="${iconY + 1.5}" width="${Math.max(0, iconSize - 3)}" height="${Math.max(0, iconSize - 3)}" rx="${Math.max(4, iconCornerRadius || iconRadius - 1)}" />`
         : `<circle cx="${iconCx}" cy="${iconCy}" r="${Math.max(1, iconRadius - 1)}" />`;
   const iconBorder =
-    ratingStyle === 'plain'
+    ratingStyle === 'plain' || iconDataUri
       ? ''
       : ratingStyle === 'square'
         ? iconCornerRadius > 0
@@ -3203,8 +3215,8 @@ const buildBadgeSvg = ({
     !iconDataUri
       ? ''
       : ratingStyle === 'plain'
-        ? `<image href="${iconDataUri}" x="${iconX + 1}" y="${iconY + 1}" width="${Math.max(1, iconSize - 2)}" height="${Math.max(1, iconSize - 2)}" preserveAspectRatio="xMidYMid meet" />`
-        : `<defs><clipPath id="icon-clip">${iconClipPath}</clipPath></defs><image href="${iconDataUri}" x="${iconX + 1.5}" y="${iconY + 1.5}" width="${Math.max(1, iconSize - 3)}" height="${Math.max(1, iconSize - 3)}" preserveAspectRatio="xMidYMid meet" clip-path="url(#icon-clip)" />${iconBorder}`;
+        ? `<image href="${iconDataUri}" x="${iconImageX}" y="${iconImageY}" width="${renderedIconSize}" height="${renderedIconSize}" preserveAspectRatio="xMidYMid meet" />`
+        : `<defs><clipPath id="icon-clip">${iconClipPath}</clipPath></defs><image href="${iconDataUri}" x="${iconImageX}" y="${iconImageY}" width="${renderedIconSize}" height="${renderedIconSize}" preserveAspectRatio="xMidYMid meet" clip-path="url(#icon-clip)" />${iconBorder}`;
   const monogramText =
     iconDataUri
       ? ''
@@ -3489,6 +3501,7 @@ const renderWithSharp = async (
           monogram,
           iconDataUri: iconByProvider.get(entry.badge.key) || null,
           iconCornerRadius: entry.badge.iconCornerRadius,
+          iconScale: entry.badge.iconScale,
           value: entry.badge.value,
           ratingStyle: input.ratingStyle,
           compactText: rowCompactText,
@@ -3534,6 +3547,7 @@ const renderWithSharp = async (
                 monogram,
                 iconDataUri: iconByProvider.get(entry.badge.key) || null,
                 iconCornerRadius: entry.badge.iconCornerRadius,
+                iconScale: entry.badge.iconScale,
                 value: entry.badge.value,
                 ratingStyle: input.ratingStyle,
                 compactText: rowCompactText,
@@ -3571,6 +3585,7 @@ const renderWithSharp = async (
               monogram,
               iconDataUri: iconByProvider.get(entry.badge.key) || null,
               iconCornerRadius: entry.badge.iconCornerRadius,
+              iconScale: entry.badge.iconScale,
               value: entry.badge.value,
               ratingStyle: input.ratingStyle,
               compactText: rowCompactText,
@@ -3620,6 +3635,7 @@ const renderWithSharp = async (
           monogram,
           iconDataUri: iconByProvider.get(entry.badge.key) || null,
           iconCornerRadius: entry.badge.iconCornerRadius,
+          iconScale: entry.badge.iconScale,
           value: entry.badge.value,
           ratingStyle: input.ratingStyle,
           compactText: rowCompactText,
@@ -3724,6 +3740,7 @@ const renderWithSharp = async (
         monogram,
         iconDataUri: iconByProvider.get(badge.key) || null,
         iconCornerRadius: badge.iconCornerRadius,
+        iconScale: badge.iconScale,
         value: badge.value,
         ratingStyle: input.ratingStyle,
         contentLayout,
@@ -3776,6 +3793,7 @@ const renderWithSharp = async (
           monogram,
           iconDataUri: iconByProvider.get(badge.key) || null,
           iconCornerRadius: badge.iconCornerRadius,
+          iconScale: badge.iconScale,
           value: badge.value,
           ratingStyle: input.ratingStyle,
           compactText: true,
@@ -3889,6 +3907,7 @@ const renderWithSharp = async (
           monogram,
           iconDataUri: iconByProvider.get(badge.key) || null,
           iconCornerRadius: badge.iconCornerRadius,
+          iconScale: badge.iconScale,
           value: badge.value,
           ratingStyle: input.ratingStyle,
           contentLayout: input.verticalBadgeContent,
@@ -3972,6 +3991,7 @@ const renderWithSharp = async (
             monogram,
             iconDataUri: iconByProvider.get(badge.key) || null,
             iconCornerRadius: badge.iconCornerRadius,
+            iconScale: badge.iconScale,
             value: badge.value,
             ratingStyle: input.ratingStyle,
             contentLayout: input.verticalBadgeContent,
@@ -6506,6 +6526,7 @@ export async function GET(
           iconUrl,
           accentColor: meta.accentColor,
           iconCornerRadius: 'iconCornerRadius' in meta ? meta.iconCornerRadius : undefined,
+          iconScale: 'iconScale' in meta ? meta.iconScale : undefined,
         });
       }
       if (
@@ -6683,7 +6704,7 @@ export async function GET(
       } else if (useLogoBadgeLayout) {
         badgeIconSize = 92;
         badgeFontSize = 68;
-        badgePaddingY = 0;
+        badgePaddingY = 6;
         badgePaddingX = 38;
         badgeGap = 22;
       }
@@ -6995,15 +7016,11 @@ export async function GET(
       const finalOutputWidth = useLogoBadgeLayout && logoBadgeRowWidth > 0
         ? Math.max(logoNaturalWidth, logoBadgeRowWidth + 72)
         : outputWidth;
-      const logoScale =
-        useLogoBadgeLayout && logoNaturalWidth > 0
-          ? Math.max(1, finalOutputWidth / logoNaturalWidth)
-          : 1;
       const logoImageWidth = useLogoBadgeLayout
-        ? Math.max(logoNaturalWidth, Math.round(logoNaturalWidth * logoScale))
+        ? logoNaturalWidth
         : 0;
       const logoImageHeight = useLogoBadgeLayout
-        ? Math.max(outputHeight, Math.round(outputHeight * logoScale))
+        ? outputHeight
         : 0;
       const logoBadgesPerRow = useLogoBadgeLayout ? Math.max(1, cappedRatingBadges.length) : 0;
       const logoBadgeRows = useLogoBadgeLayout && cappedRatingBadges.length > 0 ? 1 : 0;
