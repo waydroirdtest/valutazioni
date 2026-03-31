@@ -1410,16 +1410,19 @@ Skip any params that are undefined. Keep empty ratings/posterRatings/backdropRat
         baseUrl,
         imageType: 'poster',
         configString,
+        idPattern: '{imdb_id}',
       }),
       background: buildAiometadataPatternBlock({
         baseUrl,
         imageType: 'backdrop',
         configString,
+        idPattern: '{imdb_id}',
       }),
       logo: buildAiometadataPatternBlock({
         baseUrl,
         imageType: 'logo',
         configString,
+        idPattern: '{imdb_id}',
       }),
       episodeThumbnail: episodePattern,
     };
