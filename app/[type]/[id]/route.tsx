@@ -127,7 +127,7 @@ const parseNonNegativeInt = (value?: string | null, max = Number.MAX_SAFE_INTEGE
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return Math.min(max, Math.floor(parsed));
 };
-const FINAL_IMAGE_RENDERER_CACHE_VERSION = 'poster-backdrop-logo-thumbnail-v49';
+const FINAL_IMAGE_RENDERER_CACHE_VERSION = 'poster-backdrop-logo-thumbnail-v54';
 const TMDB_CACHE_TTL_MS = parseCacheTtlMs(
   process.env.ERDB_TMDB_CACHE_TTL_MS,
   3 * 24 * 60 * 60 * 1000,
@@ -472,6 +472,10 @@ const DEFAULT_QUALITY_BADGES_STYLE: RatingStyle = 'glass';
 const LOGO_BASE_HEIGHT = 320;
 const LOGO_FALLBACK_ASPECT_RATIO = 2.5;
 const LOGO_MIN_WIDTH = 360;
+const LOGO_MAX_WIDTH = 3000;
+const LOGO_BADGE_BOOST_ASPECT_RATIO_THRESHOLD = 5.75;
+const LOGO_BADGE_BOOST_PER_ASPECT_POINT = 0.03;
+const LOGO_BADGE_BOOST_MAX_SCALE = 1.14;
 
 const buildProviderMonogram = (label: string) => {
   const cleaned = label.replace(/[^A-Za-z0-9]+/g, ' ').trim();
@@ -1962,6 +1966,7 @@ type FastRenderInput = {
   imageWidth?: number;
   imageHeight?: number;
   finalOutputHeight: number;
+  logoBadgeTopGap: number;
   logoBadgeBandHeight: number;
   logoBadgeMaxWidth: number;
   logoBadgesPerRow: number;
@@ -2662,6 +2667,18 @@ const measureBadgeRowWidth = (
   );
 };
 
+const getLogoCanvasWidth = (aspectRatio?: number | null) => {
+  const normalizedAspectRatio = Math.max(
+    LOGO_FALLBACK_ASPECT_RATIO,
+    aspectRatio || LOGO_FALLBACK_ASPECT_RATIO
+  );
+  return Math.min(
+    LOGO_MAX_WIDTH,
+    Math.max(LOGO_MIN_WIDTH, Math.round(LOGO_BASE_HEIGHT * normalizedAspectRatio))
+  );
+};
+
+
 const fitPosterBadgeMetricsToWidth = (
   rows: RatingBadge[][],
   outputWidth: number,
@@ -3259,30 +3276,30 @@ const renderWithSharp = async (
     const resizedImageBuffer: Buffer =
       input.imageType === 'logo'
         ? await (async () => {
-            const trimmedLogo = await sharp(sourceBuffer)
-              .trim({ background: transparentBackground })
-              .png({ compressionLevel: 1 })
-              .toBuffer({ resolveWithObject: true });
-            const trimmedLogoWidth = Math.max(1, trimmedLogo.info.width || imageWidth);
-            const trimmedLogoHeight = Math.max(1, trimmedLogo.info.height || imageHeight);
-            const logoScale = Math.min(imageWidth / trimmedLogoWidth, imageHeight / trimmedLogoHeight);
-            const renderedImageWidth = Math.max(1, Math.round(trimmedLogoWidth * logoScale));
-            renderedImageHeight = Math.max(1, Math.round(trimmedLogoHeight * logoScale));
-            imageLeft = Math.max(0, Math.floor((input.outputWidth - renderedImageWidth) / 2));
-            imageTop = Math.max(0, Math.floor((input.outputHeight - renderedImageHeight) / 2));
-            return sharp(trimmedLogo.data)
-              .resize(renderedImageWidth, renderedImageHeight)
-              .png({ compressionLevel: 1 })
-              .toBuffer();
-          })()
-        : await sharp(sourceBuffer)
-            .resize(imageWidth, imageHeight, {
-              fit: 'cover',
-              position: 'center',
-              background: transparentBackground,
-            })
+          const trimmedLogo = await sharp(sourceBuffer)
+            .trim({ background: transparentBackground })
+            .png({ compressionLevel: 1 })
+            .toBuffer({ resolveWithObject: true });
+          const trimmedLogoWidth = Math.max(1, trimmedLogo.info.width || imageWidth);
+          const trimmedLogoHeight = Math.max(1, trimmedLogo.info.height || imageHeight);
+          const logoScale = Math.min(imageWidth / trimmedLogoWidth, imageHeight / trimmedLogoHeight);
+          const renderedImageWidth = Math.max(1, Math.round(trimmedLogoWidth * logoScale));
+          renderedImageHeight = Math.max(1, Math.round(trimmedLogoHeight * logoScale));
+          imageLeft = Math.max(0, Math.floor((input.outputWidth - renderedImageWidth) / 2));
+          imageTop = Math.max(0, Math.floor((input.outputHeight - renderedImageHeight) / 2));
+          return sharp(trimmedLogo.data)
+            .resize(renderedImageWidth, renderedImageHeight)
             .png({ compressionLevel: 1 })
             .toBuffer();
+        })()
+        : await sharp(sourceBuffer)
+          .resize(imageWidth, imageHeight, {
+            fit: 'cover',
+            position: 'center',
+            background: transparentBackground,
+          })
+          .png({ compressionLevel: 1 })
+          .toBuffer();
     overlays.push({ input: resizedImageBuffer, top: imageTop, left: imageLeft });
 
     const iconByProvider = new Map<BadgeKey, string | null>();
@@ -4122,7 +4139,7 @@ const renderWithSharp = async (
     if (input.imageType === 'logo') {
       if (input.badges.length > 0 && input.logoBadgeBandHeight > 0 && input.logoBadgesPerRow > 0) {
         const rows = chunkBy(input.badges, input.logoBadgesPerRow);
-        let rowY = imageTop + renderedImageHeight;
+        let rowY = imageTop + renderedImageHeight + input.logoBadgeTopGap;
         for (const row of rows) {
           composeBadgeRow(row, rowY, {
             maxRowWidth: input.logoBadgeMaxWidth,
@@ -4169,7 +4186,7 @@ const renderWithSharp = async (
                   ? input.rightBadges
                   : input.leftBadges.length > 0
                     ? input.leftBadges
-                  : input.badges;
+                    : input.badges;
             composeBackdropBadgeColumn(columnBadges, backdropPlacement, maxBadgeWidth);
           }
         } else {
@@ -4455,8 +4472,8 @@ const renderWithSharp = async (
         const verticalBackdropColumns =
           backdropPlacement.stack === 'column'
             ? (input.backdropColumns && input.backdropColumns.length > 0
-                ? input.backdropColumns
-                : [input.leftBadges, input.rightBadges].filter((column) => column.length > 0))
+              ? input.backdropColumns
+              : [input.leftBadges, input.rightBadges].filter((column) => column.length > 0))
             : [];
         const ratingCenterX = backdropPlacement.left + backdropPlacement.width / 2;
         let ratingLeft = ratingCenterX;
@@ -4567,8 +4584,8 @@ const renderWithSharp = async (
           }
           const singleStartY =
             backdropPlacement.stack !== 'column' &&
-            input.backdropRatingsLayout === 'center' &&
-            ratingRows > 0
+              input.backdropRatingsLayout === 'center' &&
+              ratingRows > 0
               ? startY + ratingRows * (badgeHeight + input.badgeGap)
               : qualityStartY;
           renderQualityBadgeColumnAt(
@@ -4849,7 +4866,7 @@ export async function GET(
         ? backdropRatings
         : imageType === 'thumbnail'
           ? thumbnailRatings
-        : logoRatings;
+          : logoRatings;
   const thumbnailSupportedRatings = new Set<RatingPreference>(['tmdb', 'imdb']);
   const requestedRatingPreferences =
     imageType === 'thumbnail'
@@ -6187,10 +6204,7 @@ export async function GET(
         outputHeight = 750;
       } else if (type === 'logo') {
         outputHeight = LOGO_BASE_HEIGHT;
-        outputWidth = Math.max(
-          LOGO_MIN_WIDTH,
-          Math.round(LOGO_BASE_HEIGHT * (rawFallbackLogoAspectRatio || LOGO_FALLBACK_ASPECT_RATIO))
-        );
+        outputWidth = getLogoCanvasWidth(rawFallbackLogoAspectRatio);
       }
 
       if (!useRawKitsuFallback && detailsBundlePromise) {
@@ -6436,10 +6450,7 @@ export async function GET(
           }
         }
         if (selectedLogoAspectRatio) {
-          outputWidth = Math.max(
-            LOGO_MIN_WIDTH,
-            Math.round(LOGO_BASE_HEIGHT * selectedLogoAspectRatio)
-          );
+          outputWidth = getLogoCanvasWidth(selectedLogoAspectRatio);
         }
 
         // If the filtered languages returned nothing, retry with all languages and pick the first available.
@@ -6465,10 +6476,7 @@ export async function GET(
               selectedPosterLogoPath = fallbackSelection.logoPath || selectedPosterLogoPath;
               selectedPosterIsTextless = fallbackSelection.posterIsTextless;
               if (selectedLogoAspectRatio) {
-                outputWidth = Math.max(
-                  LOGO_MIN_WIDTH,
-                  Math.round(LOGO_BASE_HEIGHT * selectedLogoAspectRatio)
-                );
+                outputWidth = getLogoCanvasWidth(selectedLogoAspectRatio);
               }
             }
           }
@@ -6572,6 +6580,20 @@ export async function GET(
       const usePosterBadgeLayout = type === 'poster';
       const useBackdropBadgeLayout = type === 'backdrop' || type === 'thumbnail';
       const useLogoBadgeLayout = type === 'logo';
+      const logoAspectRatioForBadgeSizing = useLogoBadgeLayout
+        ? Math.max(
+          LOGO_FALLBACK_ASPECT_RATIO,
+          selectedLogoAspectRatio || rawFallbackLogoAspectRatio || LOGO_FALLBACK_ASPECT_RATIO
+        )
+        : LOGO_FALLBACK_ASPECT_RATIO;
+      const logoBadgeScale = useLogoBadgeLayout
+        ? Math.min(
+          LOGO_BADGE_BOOST_MAX_SCALE,
+          1 +
+          Math.max(0, logoAspectRatioForBadgeSizing - LOGO_BADGE_BOOST_ASPECT_RATIO_THRESHOLD) *
+          LOGO_BADGE_BOOST_PER_ASPECT_POINT
+        )
+        : 1;
       const usePosterRowLayout =
         usePosterBadgeLayout &&
         (posterRatingsLayout === 'top' ||
@@ -6736,11 +6758,11 @@ export async function GET(
           badgeGap = Math.max(badgeGap, 12);
         }
       } else if (useLogoBadgeLayout) {
-        badgeIconSize = 92;
-        badgeFontSize = 68;
-        badgePaddingY = 6;
-        badgePaddingX = 38;
-        badgeGap = 22;
+        badgeIconSize = Math.round(92 * logoBadgeScale);
+        badgeFontSize = Math.round(68 * logoBadgeScale);
+        badgePaddingY = Math.max(6, Math.round(6 * logoBadgeScale));
+        badgePaddingX = Math.round(38 * logoBadgeScale);
+        badgeGap = Math.round(22 * logoBadgeScale);
       }
 
       if (usePosterBadgeLayout && cappedRatingBadges.length > 0) {
@@ -6782,15 +6804,15 @@ export async function GET(
           const posterOverlayBodyReservedHeight =
             posterOverlayPresent
               ? Math.max(
-                  posterLogoUrl ? Math.round(outputHeight * 0.20) : 96,
-                  Math.round(outputHeight * 0.18)
-                )
+                posterLogoUrl ? Math.round(outputHeight * 0.20) : 96,
+                Math.round(outputHeight * 0.18)
+              )
               : 0;
           const posterOverlayReservedHeight =
             posterOverlayPresent
               ? posterOverlayGap +
-                posterOverlayBodyReservedHeight +
-                (bottomQualityReservedHeight > 0 ? bottomQualityReservedHeight : baseBadgeHeight)
+              posterOverlayBodyReservedHeight +
+              (bottomQualityReservedHeight > 0 ? bottomQualityReservedHeight : baseBadgeHeight)
               : 0;
           const overlayReservedHeight = posterOverlayPresent
             ? posterOverlayReservedHeight
@@ -7007,8 +7029,8 @@ export async function GET(
             const reservedQualityWidth =
               backdropQualityColumnCount > 0
                 ? backdropQualityColumnCount * backdropQualityBadgeWidth +
-                  Math.max(0, backdropQualityColumnCount - 1) * backdropQualityColumnGap +
-                  backdropQualityColumnGap
+                Math.max(0, backdropQualityColumnCount - 1) * backdropQualityColumnGap +
+                backdropQualityColumnGap
                 : 0;
             const availableBackdropRowWidth = Math.max(
               0,
@@ -7047,6 +7069,13 @@ export async function GET(
       const qualityBadges = useLogoBadgeLayout ? [] : streamBadges;
       const badgesForIcons = cappedRatingBadges;
       const logoNaturalWidth = useLogoBadgeLayout ? outputWidth : 0;
+      const logoBadgesPerRow = useLogoBadgeLayout && cappedRatingBadges.length > 0
+        ? Math.max(1, cappedRatingBadges.length)
+        : 0;
+      const logoBadgeRowsData =
+        useLogoBadgeLayout && cappedRatingBadges.length > 0 && logoBadgesPerRow > 0
+          ? chunkBy(cappedRatingBadges, logoBadgesPerRow)
+          : [];
       const finalOutputWidth = useLogoBadgeLayout && logoBadgeRowWidth > 0
         ? Math.max(logoNaturalWidth, logoBadgeRowWidth + 72)
         : outputWidth;
@@ -7056,8 +7085,7 @@ export async function GET(
       const logoImageHeight = useLogoBadgeLayout
         ? outputHeight
         : 0;
-      const logoBadgesPerRow = useLogoBadgeLayout ? Math.max(1, cappedRatingBadges.length) : 0;
-      const logoBadgeRows = useLogoBadgeLayout && cappedRatingBadges.length > 0 ? 1 : 0;
+      const logoBadgeRows = logoBadgeRowsData.length;
       const logoBadgeItemHeight = estimateBadgeHeight(
         badgeFontSize,
         badgePaddingX,
@@ -7068,10 +7096,13 @@ export async function GET(
       const estimatedLogoWidth = logoImageWidth;
       const logoBadgeContainerMaxWidth = Math.max(0, finalOutputWidth - 24);
       const logoBadgeMaxWidth = logoBadgeContainerMaxWidth;
+      const logoBadgeTopGap = useLogoBadgeLayout && cappedRatingBadges.length > 0
+        ? Math.max(20, Math.round(badgeGap * 1.15))
+        : 0;
       const logoBadgeBandHeight = useLogoBadgeLayout && cappedRatingBadges.length > 0
         ? logoBadgeRows * logoBadgeItemHeight + Math.max(0, logoBadgeRows - 1) * badgeGap
         : 0;
-      const finalOutputHeight = useLogoBadgeLayout ? logoImageHeight + logoBadgeBandHeight : outputHeight;
+      const finalOutputHeight = useLogoBadgeLayout ? logoImageHeight + logoBadgeTopGap + logoBadgeBandHeight : outputHeight;
       const renderedRatingCacheTtlCandidates = [
         ...ratingBadges.map((badge) => {
           if (badge.key === 'tmdb') {
@@ -7099,6 +7130,7 @@ export async function GET(
           imageWidth: useLogoBadgeLayout ? logoImageWidth : undefined,
           imageHeight: useLogoBadgeLayout ? logoImageHeight : undefined,
           finalOutputHeight,
+          logoBadgeTopGap,
           logoBadgeBandHeight,
           logoBadgeMaxWidth,
           logoBadgesPerRow,
