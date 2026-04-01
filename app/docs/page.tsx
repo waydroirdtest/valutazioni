@@ -86,7 +86,7 @@ export default function DocsPage() {
             <span>Back to ERDB</span>
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/#preview" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black">Open Configurator</Link>
+            <Link href="/configurator" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black">Open Configurator</Link>
             <a href="https://github.com/realbestia1/erdb" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-200">
               <span>GitHub</span>
               <ArrowUpRight className="h-4 w-4" />
